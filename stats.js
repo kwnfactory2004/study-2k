@@ -1,16 +1,20 @@
-export const KINDS = { g: 'ガソリン', d: 'ジーゼル', c: 'シャシ' };
+export const KINDS = { g: 'ガソリン', d: 'ジーゼル', c: 'シャシ', s: '総合（旧問題まとめ）' };
+// 総合は、旧制度のガソリン・ジーゼル・シャシの問題をまとめて解くための枠（令和9年からの新試験の中身はまだ未発表）
+const OLD_KINDS = ['g', 'd', 'c'];
+const ALL_FIELDS = ['エンジン', 'シャシ・電装', '基礎知識', '法規'];
+export const sourceKinds = (kind) => (kind === 's' ? OLD_KINDS : [kind]);
 // 分野は問題番号の範囲で決まる（[分野名, その分野の最後の番号]）
 const FIELD_RANGES = {
   g: [['エンジン', 15], ['シャシ・電装', 30], ['基礎知識', 35], ['法規', 40]],
   d: [['エンジン', 15], ['シャシ・電装', 30], ['基礎知識', 35], ['法規', 40]],
   c: [['シャシ・電装', 20], ['基礎知識', 25], ['法規', 30]],
 };
-export const EXAM_INFO = { g: { questions: 40, minutes: 80 }, d: { questions: 40, minutes: 80 }, c: { questions: 30, minutes: 60 } };
+export const EXAM_INFO = { g: { questions: 40, minutes: 80 }, d: { questions: 40, minutes: 80 }, c: { questions: 30, minutes: 60 }, s: null };
 export const CUTOFF = 0.7; // 合格の目安（公式には公表されていない）
 const ERAS = { H: '平成', R: '令和' };
 const NEWEST_OLD_EXAM = 'R02-2'; // これ以前は法改正などで今の答えと違うことがある
 
-export const fieldsOf = (kind) => FIELD_RANGES[kind].map(([name]) => name);
+export const fieldsOf = (kind) => (kind === 's' ? ALL_FIELDS : FIELD_RANGES[kind].map(([name]) => name));
 
 export function examLabel(exam) {
   const [year, round] = exam.split('-');
@@ -26,6 +30,9 @@ export const parseUnit = (unit) => {
   const [kind, exam] = unit.split('_');
   return { kind, exam };
 };
+// 選んだ種類と試験回で開く暗号化ファイルの一覧（総合は3種類ぶんを集める）
+export const unitsOf = (kind, exam, available) =>
+  sourceKinds(kind).map((k) => unitId(k, exam)).filter((u) => available.includes(u));
 
 export function fieldOf(kind, no) {
   return FIELD_RANGES[kind].find(([, last]) => no <= last)[0];
@@ -77,8 +84,8 @@ export function fieldStats(records, kind) {
   const stats = Object.fromEntries(fieldsOf(kind).map((f) => [f, { attempts: 0, correct: 0 }]));
   for (const [id, { a, c }] of Object.entries(records)) {
     const parts = id.split('-'); // 例: g-R07-2-05
-    if (parts[0] !== kind) continue;
-    const stat = stats[fieldOf(kind, Number(parts[3]))];
+    if (!sourceKinds(kind).includes(parts[0])) continue;
+    const stat = stats[fieldOf(parts[0], Number(parts[3]))];
     stat.attempts += a;
     stat.correct += c;
   }

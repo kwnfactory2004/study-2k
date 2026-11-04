@@ -1,5 +1,5 @@
 import { deriveKey, decryptBundle } from './crypto.js';
-import { CUTOFF, EXAM_INFO, KINDS, buildQueue, examLabel, fieldStats, fieldsOf, isOldYear, parseUnit, questionId, recordAnswer, setupError, toggleFlag, unitId } from './stats.js';
+import { CUTOFF, EXAM_INFO, KINDS, buildQueue, examLabel, fieldStats, fieldsOf, isOldYear, parseUnit, questionId, recordAnswer, setupError, sourceKinds, toggleFlag, unitsOf } from './stats.js';
 import { resolvePage } from './route.js';
 import { LoadError, errorMessage, isStaleKey } from './messages.js';
 
@@ -16,7 +16,7 @@ const state = {
   key: null,
   records: {},
   flags: [],
-  kind: 'g',
+  kind: 'c',
   storageOk: true,
   bundles: {},
   setup: null,
@@ -199,9 +199,12 @@ function renderHome() {
   const info = EXAM_INFO[kind];
   app.innerHTML = `${storageNotice()}
     <h1>Study 2K</h1>
+    <p class="notice">令和9年（2027年）1月から、二級のガソリン・ジーゼル・シャシは「二級（総合）」にまとまります。ここに入っているのは旧制度（ガソリン・ジーゼル・シャシ別）の問題です。旧制度の試験がいつまで続くかは、日整連や各県の自動車整備振興会の最新の案内で確認してください。</p>
     <div class="chips kinds" role="group" aria-label="種類">${Object.entries(KINDS).map(([k, name]) =>
       `<button type="button" class="chip kind ${k === kind ? 'on' : ''}" data-kind="${k}" aria-pressed="${k === kind}">${esc(name)}</button>`).join('')}</div>
-    <p class="sub">二級${esc(KINDS[kind])}：本番は${info.questions}問・${info.minutes}分。分野を選ぶと、その分野の問題に進みます</p>
+    <p class="sub">${info
+      ? `二級${esc(KINDS[kind])}：本番は${info.questions}問・${info.minutes}分。分野を選ぶと、その分野の問題に進みます`
+      : '総合：旧制度のガソリン・ジーゼル・シャシの問題をまとめて解く枠です。新しい総合試験の問題数や時間はまだ発表されていないので、本番の形ではありません。分野は旧制度の分け方のままです'}</p>
     <div class="bento">
       ${fields.map((f) => statTile(f, stats[f])).join('')}
       <button class="card tile" id="all"><div class="label">全部の分野</div><div class="state">分野や試験回を選んで解く</div></button>
@@ -236,9 +239,9 @@ function chips(name, type, items, isChecked, label = (x) => x) {
 
 function renderSetup(message = '') {
   const s = state.setup;
-  const exams = state.meta.years.map(parseUnit).filter((u) => u.kind === s.kind).map((u) => u.exam);
+  const exams = [...new Set(state.meta.years.map(parseUnit).filter((u) => sourceKinds(s.kind).includes(u.kind)).map((u) => u.exam))].sort();
   app.innerHTML = `<form class="card" id="setup">
-    <h1>出題の設定（二級${esc(KINDS[s.kind])}）</h1>
+    <h1>出題の設定（${s.kind === 's' ? '' : '二級'}${esc(KINDS[s.kind])}）</h1>
     <fieldset><legend>分野</legend><div class="chips">${chips('fields', 'checkbox', fieldsOf(s.kind), (f) => s.fields.includes(f))}</div></fieldset>
     <fieldset><legend>試験回</legend><div class="chips">${chips('years', 'checkbox', exams, (y) => s.years.includes(y), examLabel)}</div>
       <button class="secondary" type="button" id="allYears">すべて選ぶ</button></fieldset>
@@ -291,12 +294,13 @@ async function startQuiz(setup) {
   start.disabled = true;
   start.textContent = '読み込み中…';
   try {
-    await loadUnits(setup.years.map((y) => unitId(setup.kind, y)));
+    const units = setup.years.flatMap((y) => unitsOf(setup.kind, y, state.meta.years));
+    await loadUnits(units);
     if (state.current !== 'setup') {
       state.loading = false; // 読み込み中に別の画面へ移った
       return;
     }
-    const all = setup.years.flatMap((y) => state.bundles[unitId(setup.kind, y)]);
+    const all = units.flatMap((u) => state.bundles[u]);
     state.queue = buildQueue(all, setup, state.records, Math.random);
     state.loading = false;
     if (state.queue.length === 0) {
@@ -332,7 +336,7 @@ async function startQuiz(setup) {
 function renderQuiz() {
   const q = state.queue[state.index];
   app.innerHTML = `<div class="qhead">
-      <span class="sub">${state.index + 1} / ${state.queue.length}・${esc(q.field)}・${esc(examLabel(q.year))} No.${q.no}</span>
+      <span class="sub">${state.index + 1} / ${state.queue.length}・${state.setup?.kind === 's' ? `${esc(KINDS[q.kind])}・` : ''}${esc(q.field)}・${esc(examLabel(q.year))} No.${q.no}</span>
       <button class="secondary" id="quit">終わる</button>
     </div>
     ${storageNotice()}
@@ -406,7 +410,7 @@ function renderResult() {
     </div>
     <div class="card">
       <h2>間違えた問題</h2>
-      ${wrong.length ? `<ul class="wrong-list">${wrong.map(({ q }) => `<li>${esc(examLabel(q.year))} No.${q.no}（${esc(q.field)}）</li>`).join('')}</ul>` : '<p class="sub">ありません</p>'}
+      ${wrong.length ? `<ul class="wrong-list">${wrong.map(({ q }) => `<li>${esc(KINDS[q.kind])} ${esc(examLabel(q.year))} No.${q.no}（${esc(q.field)}）</li>`).join('')}</ul>` : '<p class="sub">ありません</p>'}
       <div class="row">
         <button class="primary" id="home">ホームへ</button>
         ${wrong.length ? '<button class="secondary" id="retry">間違えた問題を解き直す</button>' : ''}
